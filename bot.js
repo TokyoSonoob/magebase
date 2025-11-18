@@ -1,4 +1,4 @@
-﻿// bot.js — clean version
+// bot.js — clean version
 require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 
@@ -79,7 +79,7 @@ client.on("messageCreate", async (message) => {
 
       const link = `${baseUrl}/f/${filePath}`;
 
-      await msg.reply(`\`${link}\``);
+      await msg.reply(`\`# [กดที่นี่เพื่อโหลดไฟล์](${link})\``);
     }
   } catch {}
 });
