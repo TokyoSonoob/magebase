@@ -1,8 +1,7 @@
-﻿// server.js
+﻿// server.js — ultra light (สำหรับเครื่อง RAM น้อยมาก)
 require("dotenv").config();
 const express = require("express");
 const https = require("https");
-const JSZip = require("jszip");
 const { renderDownloadPage } = require("./webPage");
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -12,7 +11,7 @@ if (!DISCORD_TOKEN) {
   process.exit(1);
 }
 
-// ดึงข้อมูลไฟล์จาก Discord API ด้วย channel + message + attachmentId
+// ดึงข้อมูลไฟล์จาก Discord API (เฉพาะ meta, ไม่โหลดตัวไฟล์ใหญ่)
 function fetchAttachmentMeta(channelId, messageId, attachmentId) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -58,12 +57,12 @@ function fetchAttachmentMeta(channelId, messageId, attachmentId) {
   });
 }
 
-// สร้างเซิร์ฟเวอร์หลัก — รับ setBaseUrl จาก bot.js
+// สร้างเซิร์ฟเวอร์หลัก — setBaseUrl อาจเป็น undefined ถ้าไม่ใช้บอท
 function createServer(setBaseUrl) {
   const app = express();
   const PORT = process.env.PORT || 3000;
 
-  // ทุก request เข้ามา → อัพเดต host ให้บอท
+  // อัปเดต host ให้บอทรู้ (ถ้ามีส่งฟังก์ชันมา)
   app.use((req, res, next) => {
     const host = req.headers["host"];
     if (host && typeof setBaseUrl === "function") {
@@ -90,7 +89,7 @@ function createServer(setBaseUrl) {
     }
   });
 
-  // เส้นทางดาวน์โหลดจริง
+  // เส้นทางดาวน์โหลดจริง — สตรีมตรงจาก Discord → ผู้ใช้ (ไม่โหลดเก็บใน RAM)
   app.get(
     "/f/:guildId/:channelId/:messageId/:attachmentId/download",
     async (req, res) => {
@@ -130,6 +129,7 @@ function createServer(setBaseUrl) {
               file.contentType || "application/octet-stream"
             );
 
+            // pipe ตรง ไม่โหลดทั้งไฟล์เก็บไว้ในหน่วยความจำ
             discordRes.pipe(res);
           })
           .on("error", () => {
@@ -139,63 +139,6 @@ function createServer(setBaseUrl) {
         res
           .status(404)
           .send("ไม่พบไฟล์ หรือไม่สามารถอ่านข้อมูลจาก Discord ได้");
-      }
-    }
-  );
-
-  // เส้นทางดึง pack_icon.png จากไฟล์ .zip / .mcaddon
-  app.get(
-    "/icon/:guildId/:channelId/:messageId/:attachmentId",
-    async (req, res) => {
-      const { channelId, messageId, attachmentId } = req.params;
-
-      try {
-        const file = await fetchAttachmentMeta(channelId, messageId, attachmentId);
-        const url = new URL(file.url);
-
-        https.get(
-          {
-            hostname: url.hostname,
-            path: url.pathname + url.search,
-            protocol: url.protocol,
-            headers: { "User-Agent": "DiscordFileProxy/1.0" },
-          },
-          (discordRes) => {
-            if (discordRes.statusCode !== 200) {
-              res.status(500).send("cdn-error");
-              return;
-            }
-
-            const chunks = [];
-            discordRes.on("data", (d) => chunks.push(d));
-            discordRes.on("end", async () => {
-              try {
-                const buffer = Buffer.concat(chunks);
-                const zip = await JSZip.loadAsync(buffer);
-                const fileNames = Object.keys(zip.files);
-
-                const iconPath = fileNames.find((name) =>
-                  name.toLowerCase().endsWith("pack_icon.png")
-                );
-
-                if (!iconPath) {
-                  res.status(404).send("no-pack-icon");
-                  return;
-                }
-
-                const iconFile = await zip.file(iconPath).async("nodebuffer");
-                res.setHeader("Content-Type", "image/png");
-                res.send(iconFile);
-              } catch (e) {
-                res.status(500).send("extract-error");
-              }
-            });
-          }
-        ).on("error", () => {
-          res.status(500).send("cdn-error");
-        });
-      } catch (err) {
-        res.status(404).send("not-found");
       }
     }
   );

@@ -1,4 +1,5 @@
-﻿require("dotenv").config();
+﻿// index.js — โหมดเต็ม: Bot + Web
+require("dotenv").config();
 
 const { startBot, setBaseUrl } = require("./bot");
 const createServer = require("./server");

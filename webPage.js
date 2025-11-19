@@ -262,11 +262,6 @@ function renderDownloadPage(file, ids) {
 
       const fileName = ${JSON.stringify(file.name || "")};
       const fileUrl  = ${JSON.stringify(file.url || "")};
-      const iconUrl  = ${JSON.stringify(
-        `/icon/${encodeURIComponent(guildId)}/${encodeURIComponent(channelId)}/${encodeURIComponent(
-          messageId
-        )}/${encodeURIComponent(attachmentId)}`
-      )};
 
       // ====== Loader behavior ======
       if (form) {
@@ -325,27 +320,11 @@ function renderDownloadPage(file, ids) {
         return;
       }
 
-      // ZIP / MCADDON → ลองโหลด icon จาก /icon/...
+      // ZIP / MCADDON → ไม่แตก zip ใน server แล้ว แสดงข้อความอย่างเดียว
       if (isMcaddon || isZip) {
         previewEl.style.display = "block";
         previewEl.innerHTML =
-          '<div class="preview-addon">กำลังโหลด icon…</div>';
-
-        const addonBox = previewEl.querySelector(".preview-addon");
-        const img = new Image();
-        img.src = iconUrl;
-        img.className = "preview-img";
-
-        img.onload = () => {
-          addonBox.innerHTML = "";
-          addonBox.appendChild(img);
-        };
-
-        img.onerror = () => {
-          addonBox.innerHTML =
-            "ไม่พบ pack_icon.png ในไฟล์ หรือไม่สามารถดึง icon ได้";
-        };
-
+          '<div class="preview-addon">ไฟล์แอดออน / zip<br/>กดปุ่มด้านบนเพื่อดาวน์โหลดได้เลย 💜</div>';
         return;
       }
     });
