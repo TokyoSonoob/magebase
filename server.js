@@ -86,8 +86,12 @@ function createServer(setBaseUrl) {
     res.send("OK");
   });
 
+  // 🔍 GET /api/upload → เอาไว้เทสในเบราว์เซอร์ จะต้องเห็น JSON นี้
+  app.get("/api/upload", (req, res) => {
+    res.json({ status: "ok", method: "GET" });
+  });
+
   // === API จากแอป: อัปโหลดไฟล์ → ส่งต่อเข้า Discord → ตอบลิงก์กลับไป ===
-  // ใช้ร่วมกับ SERVER_UPLOAD_URL = "https://magebase.onrender.com/api/upload"
   app.post("/api/upload", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
