@@ -7,7 +7,7 @@ function renderDownloadPage(file, ids) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ดาวน์โหลดไฟล์ ${file.name}</title>
+  <title> Purple Shop</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;900&family=Poppins:wght@300;500;600;700&display=swap');
 
@@ -42,13 +42,13 @@ function renderDownloadPage(file, ids) {
       font-size:clamp(2.6rem,7vw,4.6rem);
       font-weight:900;
       letter-spacing:4px;
-      background: linear-gradient(90deg, #ff9aff, #ae4cff, #6b99ff, #3cf2ff);
+      background: linear-gradient(90deg, #ff9aff, #a200ffff, #6b99ff, #ff9aff);
       -webkit-background-clip:text;
       -webkit-text-fill-color:transparent;
       background-size:200% 200%;
       animation: 
-        neonShift 2.2s linear infinite,
-        glowPulse 1.6s ease-in-out infinite alternate,
+        neonShift 1s linear infinite,
+        glowPulse 1s ease-in-out infinite alternate,
         floatText 5s ease-in-out infinite;
     }
 
@@ -233,7 +233,7 @@ function renderDownloadPage(file, ids) {
   <div class="header"><span>Purple Shop</span></div>
 
   <div class="card">
-    <div class="title">ดาวน์โหลดไฟล์</div>
+    <div class="title">อย่าลืมให้เครดิตด้วยน้าาา</div>
     <div class="filename">${file.name}</div>
 
     <form method="GET" 
@@ -324,7 +324,7 @@ function renderDownloadPage(file, ids) {
       if (isMcaddon || isZip) {
         previewEl.style.display = "block";
         previewEl.innerHTML =
-          '<div class="preview-addon">ไฟล์แอดออน / zip<br/>กดปุ่มด้านบนเพื่อดาวน์โหลดได้เลย 💜</div>';
+          '<div class="preview-addon">โหลดไฟล์แอดออนได้เบยย<br/>กดปุ่มพื่อดาวน์โหลดได้เลยน้าาา ให้เครดิตด้วยน้าาา</div>';
         return;
       }
     });
