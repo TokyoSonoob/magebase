@@ -1,4 +1,4 @@
-﻿﻿// bot.js — clean version
+﻿// bot.js — Discord bot + upload helper
 require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 
@@ -7,13 +7,19 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = "1401622759582466229";
 const CHANNEL_ID = "1440439526324441262";
 
+if (!DISCORD_TOKEN) {
+  console.error("❌ ERROR: Please set DISCORD_TOKEN in .env");
+  process.exit(1);
+}
+
 let BASE_URL = null;
 let UPLOAD_CHANNEL = null;
 
 function setBaseUrl(host) {
   if (!host) return;
   const cleanHost = String(host).replace(/\/+$/, "");
-  const isLocal = cleanHost.startsWith("localhost") || cleanHost.startsWith("127.0.0.1");
+  const isLocal =
+    cleanHost.startsWith("localhost") || cleanHost.startsWith("127.0.0.1");
   const proto = isLocal ? "http" : "https";
   BASE_URL = `${proto}://${cleanHost}`;
 }
@@ -22,11 +28,6 @@ function ensureBaseUrl() {
   if (BASE_URL) return BASE_URL;
   const port = process.env.PORT || 3000;
   return `http://localhost:${port}`;
-}
-
-if (!DISCORD_TOKEN) {
-  console.error("❌ ERROR: Please set DISCORD_TOKEN in .env");
-  process.exit(1);
 }
 
 const client = new Client({
@@ -44,8 +45,9 @@ async function initUploadChannel() {
     const guild = await client.guilds.fetch(GUILD_ID);
     const channel = await guild.channels.fetch(CHANNEL_ID);
     UPLOAD_CHANNEL = channel;
+    console.log("✅ Upload channel ready:", CHANNEL_ID);
   } catch (e) {
-    console.error("Failed to init upload channel:", e.message);
+    console.error("❌ Failed to init upload channel:", e.message);
   }
 }
 
@@ -55,7 +57,7 @@ async function ensureUploadChannel() {
   return UPLOAD_CHANNEL;
 }
 
-// ใช้โดย server.js: อัป buffer เข้า Discord แล้วคืน message กลับไป
+// ใช้โดย server.js: อัป buffer เข้าห้องเก็บไฟล์ในดิส
 async function uploadBufferToDiscord(buffer, fileName) {
   const channel = await ensureUploadChannel();
   if (!channel) throw new Error("UPLOAD_CHANNEL not ready");
@@ -71,6 +73,7 @@ client.once("ready", async () => {
   await initUploadChannel();
 });
 
+// เผื่อกรณีมีคนลากไฟล์ใส่ห้องเก็บไฟล์โดยตรง → บอทจะตอบลิงก์ดาวน์โหลดให้
 client.on("messageCreate", async (message) => {
   try {
     if (message.author.bot) return;
@@ -105,17 +108,24 @@ client.on("messageCreate", async (message) => {
 
       await msg.reply(`\`# [กดที่นี่เพื่อโหลดไฟล์](${link})\``);
     }
-  } catch {}
+  } catch (e) {
+    console.error("messageCreate error:", e.message);
+  }
 });
 
 function startBot() {
-  client.login(DISCORD_TOKEN).catch((e) => {
-    console.error("Login failed:", e.message);
-  });
+  client
+    .login(DISCORD_TOKEN)
+    .then(() => {
+      console.log("🔑 Discord login success");
+    })
+    .catch((e) => {
+      console.error("❌ Discord login failed:", e.message);
+    });
 }
 
 module.exports = {
   startBot,
   setBaseUrl,
-  uploadBufferToDiscord, // ✅ เพิ่มให้ server.js เรียกใช้
+  uploadBufferToDiscord,
 };

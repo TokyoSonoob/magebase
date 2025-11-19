@@ -1,4 +1,4 @@
-﻿﻿// server.js
+﻿// server.js
 require("dotenv").config();
 const express = require("express");
 const https = require("https");
@@ -34,7 +34,9 @@ function fetchAttachmentMeta(channelId, messageId, attachmentId) {
         if (res2.statusCode !== 200) {
           return reject(
             new Error(
-              `Discord API status ${res2.statusCode}: ${data.toString().slice(0, 200)}`
+              `Discord API status ${res2.statusCode}: ${data
+                .toString()
+                .slice(0, 200)}`
             )
           );
         }
@@ -71,7 +73,7 @@ function createServer(setBaseUrl) {
     limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
   });
 
-  // ทุก request เข้ามา → อัพเดต host ให้บอท (ใช้ตอนตอบลิงก์ในห้องดิส)
+  // ทุก request เข้ามา → อัพเดต host ให้บอท (ใช้ตอนบอทสร้างลิงก์ในดิส)
   app.use((req, res, next) => {
     const host = req.headers["host"];
     if (host && typeof setBaseUrl === "function") {
@@ -85,7 +87,7 @@ function createServer(setBaseUrl) {
   });
 
   // === API จากแอป: อัปโหลดไฟล์ → ส่งต่อเข้า Discord → ตอบลิงก์กลับไป ===
-  // SERVER_UPLOAD_URL = "https://magebase.onrender.com/api/upload"
+  // ใช้ร่วมกับ SERVER_UPLOAD_URL = "https://magebase.onrender.com/api/upload"
   app.post("/api/upload", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
@@ -116,14 +118,14 @@ function createServer(setBaseUrl) {
       const messageId = msg.id;
       const attachmentId = att.id;
 
-      const baseUrl = `${req.protocol}://${req.headers.host}`;
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
       const filePath = [guildId, channelId, messageId, attachmentId]
         .map(encodeURIComponent)
         .join("/");
 
       const link = `${baseUrl}/f/${filePath}`;
 
-      // ให้แอปอ่านได้ทั้ง json.link และ json.url
+      // ให้ฝั่งแอปอ่านได้ทั้ง json.link และ json.url
       res.json({ link, url: link });
     } catch (err) {
       console.error("Upload error:", err);
@@ -136,9 +138,15 @@ function createServer(setBaseUrl) {
     const { guildId, channelId, messageId, attachmentId } = req.params;
     try {
       const file = await fetchAttachmentMeta(channelId, messageId, attachmentId);
-      const html = renderDownloadPage(file, { guildId, channelId, messageId, attachmentId });
+      const html = renderDownloadPage(file, {
+        guildId,
+        channelId,
+        messageId,
+        attachmentId,
+      });
       res.send(html);
     } catch (err) {
+      console.error("GET /f error:", err.message);
       res
         .status(404)
         .send("ไม่พบไฟล์ หรือไม่สามารถอ่านข้อมูลจาก Discord ได้");
@@ -191,6 +199,7 @@ function createServer(setBaseUrl) {
             res.status(500).send("เกิดข้อผิดพลาดขณะดาวน์โหลดไฟล์");
           });
       } catch (err) {
+        console.error("download error:", err.message);
         res
           .status(404)
           .send("ไม่พบไฟล์ หรือไม่สามารถอ่านข้อมูลจาก Discord ได้");
@@ -208,48 +217,52 @@ function createServer(setBaseUrl) {
         const file = await fetchAttachmentMeta(channelId, messageId, attachmentId);
         const url = new URL(file.url);
 
-        https.get(
-          {
-            hostname: url.hostname,
-            path: url.pathname + url.search,
-            protocol: url.protocol,
-            headers: { "User-Agent": "DiscordFileProxy/1.0" },
-          },
-          (discordRes) => {
-            if (discordRes.statusCode !== 200) {
-              res.status(500).send("cdn-error");
-              return;
-            }
-
-            const chunks = [];
-            discordRes.on("data", (d) => chunks.push(d));
-            discordRes.on("end", async () => {
-              try {
-                const buffer = Buffer.concat(chunks);
-                const zip = await JSZip.loadAsync(buffer);
-                const fileNames = Object.keys(zip.files);
-
-                const iconPath = fileNames.find((name) =>
-                  name.toLowerCase().endsWith("pack_icon.png")
-                );
-
-                if (!iconPath) {
-                  res.status(404).send("no-pack-icon");
-                  return;
-                }
-
-                const iconFile = await zip.file(iconPath).async("nodebuffer");
-                res.setHeader("Content-Type", "image/png");
-                res.send(iconFile);
-              } catch (e) {
-                res.status(500).send("extract-error");
+        https
+          .get(
+            {
+              hostname: url.hostname,
+              path: url.pathname + url.search,
+              protocol: url.protocol,
+              headers: { "User-Agent": "DiscordFileProxy/1.0" },
+            },
+            (discordRes) => {
+              if (discordRes.statusCode !== 200) {
+                res.status(500).send("cdn-error");
+                return;
               }
-            });
-          }
-        ).on("error", () => {
-          res.status(500).send("cdn-error");
-        });
+
+              const chunks = [];
+              discordRes.on("data", (d) => chunks.push(d));
+              discordRes.on("end", async () => {
+                try {
+                  const buffer = Buffer.concat(chunks);
+                  const zip = await JSZip.loadAsync(buffer);
+                  const fileNames = Object.keys(zip.files);
+
+                  const iconPath = fileNames.find((name) =>
+                    name.toLowerCase().endsWith("pack_icon.png")
+                  );
+
+                  if (!iconPath) {
+                    res.status(404).send("no-pack-icon");
+                    return;
+                  }
+
+                  const iconFile = await zip.file(iconPath).async("nodebuffer");
+                  res.setHeader("Content-Type", "image/png");
+                  res.send(iconFile);
+                } catch (e) {
+                  console.error("extract icon error:", e.message);
+                  res.status(500).send("extract-error");
+                }
+              });
+            }
+          )
+          .on("error", () => {
+            res.status(500).send("cdn-error");
+          });
       } catch (err) {
+        console.error("icon error:", err.message);
         res.status(404).send("not-found");
       }
     }
