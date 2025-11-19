@@ -1,4 +1,4 @@
-// bot.js — clean version
+﻿// bot.js — clean version
 require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 
@@ -47,10 +47,28 @@ async function initUploadChannel() {
   } catch {}
 }
 
+async function ensureUploadChannel() {
+  if (UPLOAD_CHANNEL) return UPLOAD_CHANNEL;
+  await initUploadChannel();
+  return UPLOAD_CHANNEL;
+}
+
+// === ใช้โดย server.js: อัป buffer เข้า Discord แล้วคืน message กลับไป ===
+async function uploadBufferToDiscord(buffer, fileName) {
+  const channel = await ensureUploadChannel();
+  if (!channel) throw new Error("UPLOAD_CHANNEL not ready");
+
+  const msg = await channel.send({
+    files: [{ attachment: buffer, name: fileName || "file.mcaddon" }],
+  });
+  return msg;
+}
+
 client.once("ready", async () => {
   await initUploadChannel();
 });
 
+// ยังเก็บโหมดเดิม: ถ้ามีใครลากไฟล์ใส่ห้องนี้ตรง ๆ ก็จะตอบลิงก์ให้
 client.on("messageCreate", async (message) => {
   try {
     if (message.author.bot) return;
@@ -59,7 +77,9 @@ client.on("messageCreate", async (message) => {
     if (message.channelId !== UPLOAD_CHANNEL.id) return;
 
     let msg = message;
-    try { msg = await message.fetch(); } catch {}
+    try {
+      msg = await message.fetch();
+    } catch {}
 
     if (!msg.attachments || msg.attachments.size === 0) return;
 
@@ -67,15 +87,12 @@ client.on("messageCreate", async (message) => {
 
     for (const att of msg.attachments.values()) {
       const name = (att.name || "").toLowerCase();
-      const ok = ALLOWED_EXT.some(ext => name.endsWith(ext));
+      const ok = ALLOWED_EXT.some((ext) => name.endsWith(ext));
       if (!ok) continue;
 
-      const filePath = [
-        msg.guildId,
-        msg.channelId,
-        msg.id,
-        att.id,
-      ].map(encodeURIComponent).join("/");
+      const filePath = [msg.guildId, msg.channelId, msg.id, att.id]
+        .map(encodeURIComponent)
+        .join("/");
 
       const link = `${baseUrl}/f/${filePath}`;
 
@@ -91,4 +108,5 @@ function startBot() {
 module.exports = {
   startBot,
   setBaseUrl,
+  uploadBufferToDiscord, // ← เพิ่ม export ตัวนี้
 };
