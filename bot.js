@@ -1,4 +1,4 @@
-﻿// bot.js — clean version
+﻿﻿// bot.js — clean version
 require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 
@@ -44,7 +44,9 @@ async function initUploadChannel() {
     const guild = await client.guilds.fetch(GUILD_ID);
     const channel = await guild.channels.fetch(CHANNEL_ID);
     UPLOAD_CHANNEL = channel;
-  } catch {}
+  } catch (e) {
+    console.error("Failed to init upload channel:", e.message);
+  }
 }
 
 async function ensureUploadChannel() {
@@ -53,7 +55,7 @@ async function ensureUploadChannel() {
   return UPLOAD_CHANNEL;
 }
 
-// === ใช้โดย server.js: อัป buffer เข้า Discord แล้วคืน message กลับไป ===
+// ใช้โดย server.js: อัป buffer เข้า Discord แล้วคืน message กลับไป
 async function uploadBufferToDiscord(buffer, fileName) {
   const channel = await ensureUploadChannel();
   if (!channel) throw new Error("UPLOAD_CHANNEL not ready");
@@ -65,10 +67,10 @@ async function uploadBufferToDiscord(buffer, fileName) {
 }
 
 client.once("ready", async () => {
+  console.log(`✅ Discord bot logged in as ${client.user.tag}`);
   await initUploadChannel();
 });
 
-// ยังเก็บโหมดเดิม: ถ้ามีใครลากไฟล์ใส่ห้องนี้ตรง ๆ ก็จะตอบลิงก์ให้
 client.on("messageCreate", async (message) => {
   try {
     if (message.author.bot) return;
@@ -90,7 +92,12 @@ client.on("messageCreate", async (message) => {
       const ok = ALLOWED_EXT.some((ext) => name.endsWith(ext));
       if (!ok) continue;
 
-      const filePath = [msg.guildId, msg.channelId, msg.id, att.id]
+      const filePath = [
+        msg.guildId,
+        msg.channelId,
+        msg.id,
+        att.id,
+      ]
         .map(encodeURIComponent)
         .join("/");
 
@@ -102,11 +109,13 @@ client.on("messageCreate", async (message) => {
 });
 
 function startBot() {
-  client.login(DISCORD_TOKEN).catch(() => {});
+  client.login(DISCORD_TOKEN).catch((e) => {
+    console.error("Login failed:", e.message);
+  });
 }
 
 module.exports = {
   startBot,
   setBaseUrl,
-  uploadBufferToDiscord, // ← เพิ่ม export ตัวนี้
+  uploadBufferToDiscord, // ✅ เพิ่มให้ server.js เรียกใช้
 };
