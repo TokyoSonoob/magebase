@@ -1,6 +1,10 @@
-// bot.js — forward .mcaddon/.zip from source guild → storage guild + link
+// bot.js — forward .mcaddon/.zip from source guild → storage guild + link (via webhook)
 require("dotenv").config();
-const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+} = require("discord.js");
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
@@ -13,6 +17,9 @@ const STORAGE_CHANNEL_ID = "1440439526324441262";
 
 let BASE_URL = null;
 let UPLOAD_CHANNEL = null;
+
+// cache webhook ต่อ channel
+const channelWebhooks = new Map();
 
 function setBaseUrl(host) {
   if (!host) return;
@@ -73,6 +80,38 @@ function buildFileLink(baseUrl, message, attachment) {
   return `${baseUrl}/f/${filePath}`;
 }
 
+// หา / สร้าง webhook สำหรับ channel นั้น ๆ
+async function getOrCreateWebhook(channel) {
+  const cached = channelWebhooks.get(channel.id);
+  if (cached) return cached;
+
+  try {
+    const hooks = await channel.fetchWebhooks();
+    const existing = hooks.find(
+      (h) => h.owner && h.owner.id === channel.client.user.id
+    );
+    if (existing) {
+      channelWebhooks.set(channel.id, existing);
+      return existing;
+    }
+  } catch {
+    // เงียบ
+  }
+
+  try {
+    const created = await channel.createWebhook({
+      name: "Purple Forward",
+      avatar: channel.client.user.displayAvatarURL({
+        extension: "png",
+      }),
+    });
+    channelWebhooks.set(channel.id, created);
+    return created;
+  } catch {
+    return null;
+  }
+}
+
 client.on("messageCreate", async (message) => {
   try {
     if (message.author.bot) return;
@@ -115,7 +154,7 @@ client.on("messageCreate", async (message) => {
     }
 
     // ─────────────────────────────────────────
-    // 2) โหมดใหม่: เฝ้าทั้งดิส SOURCE_GUILD_ID
+    // 2) เฝ้าทั้งดิส SOURCE_GUILD_ID
     //    ถ้ามีไฟล์ .mcaddon หรือ .zip → ส่งไปเก็บที่ STORAGE_CHANNEL แล้วลบต้นฉบับ
     // ─────────────────────────────────────────
     if (message.guildId !== SOURCE_GUILD_ID) return;
@@ -147,14 +186,11 @@ client.on("messageCreate", async (message) => {
           files: [{ attachment: att.url, name: att.name }],
         });
 
-        // เอา attachment ตัวแรกจากข้อความที่เพิ่งส่ง (เราส่งไฟล์เดียว/ครั้ง)
         const fAtt = forwarded.attachments.first();
         if (!fAtt) continue;
 
         const link = buildFileLink(baseUrl, forwarded, fAtt);
-        const sizeKB = fAtt.size
-          ? (fAtt.size / 1024).toFixed(1)
-          : "0.0";
+        const sizeKB = fAtt.size ? (fAtt.size / 1024).toFixed(1) : "0.0";
 
         entries.push({
           link,
@@ -162,32 +198,66 @@ client.on("messageCreate", async (message) => {
           sizeKB,
         });
       } catch {
-        // ถ้าส่งไฟล์ตัวใดตัวหนึ่งพัง ก็ข้ามไป แต่ไม่ให้บอทล้ม
         continue;
       }
     }
 
     if (entries.length === 0) return;
 
-    // ลบข้อความต้นฉบับที่มีไฟล์ ทิ้ง
+    // เก็บข้อความต้นฉบับไว้ก่อน (เผื่อมี text)
+    const originalContent =
+      srcMsg.content && srcMsg.content.trim().length > 0
+        ? srcMsg.content
+        : null;
+
+    // เตรียมชื่อ + รูปของคนส่ง
+    const username =
+      srcMsg.member?.displayName || srcMsg.author.username || "User";
+    const avatarURL = srcMsg.author.displayAvatarURL({
+      extension: "png",
+      size: 128,
+    });
+
+    // ลบข้อความต้นฉบับ
     try {
       await srcMsg.delete();
     } catch {
-      // ถ้าลบไม่ได้ (สิทธิ์ไม่พอ) ก็ยังคงส่งลิงก์ได้
+      // ถ้าลบไม่ได้ก็เฉย ๆ
     }
 
-    // สร้าง Embed สีม่วง พร้อมลิงก์ + ชื่อไฟล์ + ขนาดไฟล์
+    // สร้าง Embed สีม่วงพร้อมลิงก์ + ชื่อไฟล์ + ขนาดไฟล์
     const lines = entries.map(
       (e) =>
         `# [กดที่นี่เพื่อโหลดไฟล์](${e.link})\nℕ𝕒𝕞𝕖: \`${e.name}\`\n𝕊𝕚𝕫𝕖: \`${e.sizeKB} KB\``
     );
 
     const embed = new EmbedBuilder()
-      .setColor(0x9b59b6) // ม่วง
+      .setColor(0x9b59b6)
       .setDescription(lines.join("\n\n"))
-      .setImage("https://www.animatedimages.org/data/media/562/animated-line-image-0379.gif");
+      .setImage(
+        "https://www.animatedimages.org/data/media/562/animated-line-image-0379.gif"
+      );
 
-    await message.channel.send({ embeds: [embed] });
+    const payload = {
+      embeds: [embed],
+    };
+
+    if (originalContent) {
+      payload.content = originalContent;
+    }
+
+    // ส่งผ่าน webhook โดยใช้ชื่อ + รูปของคนเดิม
+    const hook = await getOrCreateWebhook(message.channel);
+    if (hook) {
+      await hook.send({
+        ...payload,
+        username,
+        avatarURL,
+      });
+    } else {
+      // fallback: ถ้าสร้าง webhook ไม่ได้ ใช้ channel.send ปกติ
+      await message.channel.send(payload);
+    }
   } catch {
     // กันบอทล้ม
   }
@@ -201,3 +271,4 @@ module.exports = {
   startBot,
   setBaseUrl,
 };
+ 
