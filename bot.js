@@ -1,10 +1,10 @@
-﻿// bot.js — forward .mcaddon from source guild → storage guild + link
+// bot.js — forward .mcaddon/.zip from source guild → storage guild + link
 require("dotenv").config();
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
-// ดิสที่ให้บอท "เฝ้าทั้งดิส" (ที่คนจะส่งไฟล์ .mcaddon)
+// ดิสที่ให้บอท "เฝ้าทั้งดิส" (ที่คนจะส่งไฟล์ .mcaddon / .zip)
 const SOURCE_GUILD_ID = "1438723080246788239";
 
 // ดิสและห้องที่ใช้เก็บไฟล์จริง (คลังเก็บไฟล์ / ทำลิงก์)
@@ -116,7 +116,7 @@ client.on("messageCreate", async (message) => {
 
     // ─────────────────────────────────────────
     // 2) โหมดใหม่: เฝ้าทั้งดิส SOURCE_GUILD_ID
-    //    ถ้ามีไฟล์ .mcaddon → ส่งไปเก็บที่ STORAGE_CHANNEL แล้วลบต้นฉบับ
+    //    ถ้ามีไฟล์ .mcaddon หรือ .zip → ส่งไปเก็บที่ STORAGE_CHANNEL แล้วลบต้นฉบับ
     // ─────────────────────────────────────────
     if (message.guildId !== SOURCE_GUILD_ID) return;
 
@@ -127,21 +127,21 @@ client.on("messageCreate", async (message) => {
 
     if (!srcMsg.attachments || srcMsg.attachments.size === 0) return;
 
-    // เลือกเฉพาะไฟล์ .mcaddon
-    const mcaddonAtts = [];
+    // เลือกเฉพาะไฟล์ .mcaddon หรือ .zip
+    const forwardAtts = [];
     for (const att of srcMsg.attachments.values()) {
-      const name = (att.name || "").toLowerCase();
-      if (name.endsWith(".mcaddon")) {
-        mcaddonAtts.push(att);
+      const nameLower = (att.name || "").toLowerCase();
+      if (nameLower.endsWith(".mcaddon") || nameLower.endsWith(".zip")) {
+        forwardAtts.push(att);
       }
     }
 
-    if (mcaddonAtts.length === 0) return;
+    if (forwardAtts.length === 0) return;
 
-    const links = [];
+    const entries = []; // { link, name, sizeKB }
 
-    // ส่งแต่ละไฟล์ .mcaddon ไปเก็บใน STORAGE_CHANNEL
-    for (const att of mcaddonAtts) {
+    // ส่งแต่ละไฟล์ไปเก็บใน STORAGE_CHANNEL
+    for (const att of forwardAtts) {
       try {
         const forwarded = await UPLOAD_CHANNEL.send({
           files: [{ attachment: att.url, name: att.name }],
@@ -152,28 +152,42 @@ client.on("messageCreate", async (message) => {
         if (!fAtt) continue;
 
         const link = buildFileLink(baseUrl, forwarded, fAtt);
-        links.push(link);
-      } catch (e) {
+        const sizeKB = fAtt.size
+          ? (fAtt.size / 1024).toFixed(1)
+          : "0.0";
+
+        entries.push({
+          link,
+          name: fAtt.name || att.name || "unknown",
+          sizeKB,
+        });
+      } catch {
         // ถ้าส่งไฟล์ตัวใดตัวหนึ่งพัง ก็ข้ามไป แต่ไม่ให้บอทล้ม
         continue;
       }
     }
 
-    if (links.length === 0) return;
+    if (entries.length === 0) return;
 
-    // ลบข้อความต้นฉบับที่มีไฟล์ .mcaddon ทิ้ง
+    // ลบข้อความต้นฉบับที่มีไฟล์ ทิ้ง
     try {
       await srcMsg.delete();
     } catch {
       // ถ้าลบไม่ได้ (สิทธิ์ไม่พอ) ก็ยังคงส่งลิงก์ได้
     }
 
-    // ส่งข้อความแทนที่ พร้อมลิงก์ทุกไฟล์
-    const replyText = links
-      .map((link) => `# [กดที่นี่เพื่อโหลดไฟล์](${link})`)
-      .join("\n");
+    // สร้าง Embed สีม่วง พร้อมลิงก์ + ชื่อไฟล์ + ขนาดไฟล์
+    const lines = entries.map(
+      (e) =>
+        `# [กดที่นี่เพื่อโหลดไฟล์](${e.link})\nℕ𝕒𝕞𝕖: \`${e.name}\`\n𝕊𝕚𝕫𝕖: \`${e.sizeKB} KB\``
+    );
 
-    await message.channel.send(replyText);
+    const embed = new EmbedBuilder()
+      .setColor(0x9b59b6) // ม่วง
+      .setDescription(lines.join("\n\n"))
+      .setImage("https://www.animatedimages.org/data/media/562/animated-line-image-0379.gif");
+
+    await message.channel.send({ embeds: [embed] });
   } catch {
     // กันบอทล้ม
   }
