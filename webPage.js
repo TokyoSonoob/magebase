@@ -263,21 +263,42 @@ function renderDownloadPage(file, ids) {
       const fileName = ${JSON.stringify(file.name || "")};
       const fileUrl  = ${JSON.stringify(file.url || "")};
 
-      // ====== Loader behavior ======
+      // ====== Loader + Download + Auto-close (2s) ======
       if (form) {
-        form.addEventListener("submit", () => {
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+
+          const downloadUrl = form.action;
           overlay.style.display = "flex";
-          window.addEventListener(
-            "focus",
-            () => {
+
+          const startCloseTimer = () => {
+            setTimeout(() => {
               overlay.style.animation = "loaderFadeOut 0.5s forwards";
               setTimeout(() => {
-                overlay.style.display = "none";
-                overlay.style.animation = "loaderFadeIn 0.35s ease-out forwards";
-              }, 600);
-            },
-            { once: true }
-          );
+                // พยายามปิดหน้าแอป; ถ้าเป็น PWA/หน้าที่เปิดจาก script จะปิดได้
+                window.close();
+              }, 500);
+            }, 1000); // แสดงโหลดประมาณ 2 วิ แล้วปิด
+          };
+
+          fetch(downloadUrl)
+            .then((res) => res.blob())
+            .then((blob) => {
+              const blobUrl = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = blobUrl;
+              a.download = fileName || "download";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(blobUrl);
+              startCloseTimer();
+            })
+            .catch(() => {
+              // ถ้า fetch พัง ให้ fallback เป็นเปิดลิงก์ปกติ แล้วก็ตั้ง timer ปิดอยู่ดี
+              window.location.href = downloadUrl;
+              startCloseTimer();
+            });
         });
       }
 
