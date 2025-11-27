@@ -33,16 +33,19 @@ function renderDownloadPage(file, ids) {
     }
     @keyframes fadeIn{from{opacity:0;transform:translateY(25px);}to{opacity:1;transform:translateY(0);}}
     .header{width:100%;padding:32px 0 20px;text-align:center;}
-    .header span{
+    .header span {
       font-family:'Orbitron';
       font-size:clamp(2.6rem,7vw,4.6rem);
       font-weight:900;
       letter-spacing:4px;
-      background:linear-gradient(90deg,#ff9aff,#a200ff,#6b99ff,#ff9aff);
+      background: linear-gradient(90deg, #ff9aff, #a200ffff, #6b99ff, #ff9aff);
       -webkit-background-clip:text;
       -webkit-text-fill-color:transparent;
       background-size:200% 200%;
-      animation:neonShift 1s linear infinite,glowPulse 1s ease-in-out infinite,floatText 5s ease-in-out infinite;
+      animation: 
+        neonShift 1s linear infinite,
+        glowPulse 1s ease-in-out infinite alternate,
+        floatText 5s ease-in-out infinite;
     }
     @keyframes neonShift{0%{background-position:0% 50%;}100%{background-position:200% 50%;}}
     @keyframes glowPulse{0%{text-shadow:0 0 20px #ae4cff,0 0 40px #5b4cff;}100%{text-shadow:0 0 35px #ff4fff,0 0 70px #50c7ff;}}
