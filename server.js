@@ -1,150 +1,235 @@
-﻿// server.js — ultra light (สำหรับเครื่อง RAM น้อยมาก)
-require("dotenv").config();
+﻿require("dotenv").config();
 const express = require("express");
-const https = require("https");
+const JSZip = require("jszip");
 const { renderDownloadPage } = require("./webPage");
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 if (!DISCORD_TOKEN) {
-  console.error("❌ ERROR: DISCORD_TOKEN is required for server to call Discord API");
+  console.error("DISCORD_TOKEN is required");
   process.exit(1);
 }
 
-// ดึงข้อมูลไฟล์จาก Discord API (เฉพาะ meta, ไม่โหลดตัวไฟล์ใหญ่)
-function fetchAttachmentMeta(channelId, messageId, attachmentId) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: "discord.com",
-      path: `/api/v10/channels/${channelId}/messages/${messageId}`,
-      method: "GET",
-      headers: {
-        Authorization: `Bot ${DISCORD_TOKEN}`,
-        "User-Agent": "DiscordFileProxy/1.0",
-      },
-    };
-
-    const req = https.request(options, (res2) => {
-      let data = "";
-      res2.on("data", (chunk) => (data += chunk));
-      res2.on("end", () => {
-        if (res2.statusCode !== 200) {
-          return reject(
-            new Error(
-              `Discord API status ${res2.statusCode}: ${data.toString().slice(0, 200)}`
-            )
-          );
-        }
-        try {
-          const msg = JSON.parse(data);
-          const atts = msg.attachments || [];
-          const att = atts.find((a) => String(a.id) === String(attachmentId));
-          if (!att) return reject(new Error("Attachment not found in message"));
-          resolve({
-            name: att.filename || att.name || "file",
-            url: att.url,
-            size: att.size || 0,
-            contentType: att.content_type || "application/octet-stream",
-          });
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-
-    req.on("error", reject);
-    req.end();
+async function fetchMessage(channelId, messageId) {
+  const url = `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bot ${DISCORD_TOKEN}` },
   });
+  if (!res.ok) throw new Error(`Discord API error ${res.status}`);
+  return res.json();
 }
 
-// สร้างเซิร์ฟเวอร์หลัก — setBaseUrl อาจเป็น undefined ถ้าไม่ใช้บอท
+async function fetchAttachmentMeta(channelId, messageId, attachmentId) {
+  const data = await fetchMessage(channelId, messageId);
+  const att = (data.attachments || []).find((a) => a.id === attachmentId);
+  if (!att) return null;
+  return {
+    id: att.id,
+    name: att.filename || att.name || "download",
+    size: att.size ?? 0,
+    url: att.url,
+    contentType: att.content_type || "application/octet-stream",
+  };
+}
+
+async function fetchAllAttachments(channelId, messageId) {
+  const data = await fetchMessage(channelId, messageId);
+  return (data.attachments || []).map((att) => ({
+    id: att.id,
+    name: att.filename || att.name || "download",
+    size: att.size ?? 0,
+    url: att.url,
+    contentType: att.content_type || "application/octet-stream",
+  }));
+}
+
+async function extractPackIconFromUrl(fileUrl) {
+  const res = await fetch(fileUrl);
+  if (!res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  try {
+    const zip = await JSZip.loadAsync(buf);
+    const files = Object.keys(zip.files);
+    const matchPath =
+      files.find((name) =>
+        /(?:^|\/)icon_pack\.(png|jpe?g)$/i.test(name)
+      ) ||
+      files.find((name) =>
+        /(?:^|\/)pack_icon\.(png|jpe?g)$/i.test(name)
+      );
+    if (!matchPath) return null;
+    const imgFile = zip.file(matchPath);
+    if (!imgFile) return null;
+    const imgBuf = await imgFile.async("nodebuffer");
+    const lower = matchPath.toLowerCase();
+    let mime = "image/png";
+    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) mime = "image/jpeg";
+    const base64 = imgBuf.toString("base64");
+    return `data:${mime};base64,${base64}`;
+  } catch {
+    return null;
+  }
+}
+
 function createServer(setBaseUrl) {
   const app = express();
-  const PORT = process.env.PORT || 3000;
 
-  // อัปเดต host ให้บอทรู้ (ถ้ามีส่งฟังก์ชันมา)
-  app.use((req, res, next) => {
-    const host = req.headers["host"];
-    if (host && typeof setBaseUrl === "function") {
-      setBaseUrl(host);
+  app.use((req, _res, next) => {
+    if (typeof setBaseUrl === "function") {
+      const base = `${req.protocol}://${req.get("host")}`;
+      setBaseUrl(base);
     }
     next();
   });
 
-  app.get("/", (req, res) => {
-    res.send("OK");
+  app.get("/", (_req, res) => {
+    res.send("Purple Shop Download Server OK");
   });
 
-  // หน้าแสดงข้อมูลไฟล์ + ปุ่มดาวน์โหลด
-  app.get("/f/:guildId/:channelId/:messageId/:attachmentId", async (req, res) => {
-    const { guildId, channelId, messageId, attachmentId } = req.params;
-    try {
-      const file = await fetchAttachmentMeta(channelId, messageId, attachmentId);
-      const html = renderDownloadPage(file, { guildId, channelId, messageId, attachmentId });
-      res.send(html);
-    } catch (err) {
-      res
-        .status(404)
-        .send("ไม่พบไฟล์ หรือไม่สามารถอ่านข้อมูลจาก Discord ได้");
+  app.get(
+    "/f/:guildId/:channelId/:messageId/:attachmentId",
+    async (req, res) => {
+      const { guildId, channelId, messageId, attachmentId } = req.params;
+      try {
+        const meta = await fetchAttachmentMeta(
+          channelId,
+          messageId,
+          attachmentId
+        );
+        if (!meta) return res.status(404).send("File not found");
+
+        let iconUrl = null;
+        const lowerName = meta.name.toLowerCase();
+        if (lowerName.endsWith(".mcaddon")) {
+          iconUrl = await extractPackIconFromUrl(meta.url);
+        }
+
+        const ids = {
+          guildId,
+          channelId,
+          messageId,
+          attachmentId,
+          bundle: false,
+        };
+        const file = {
+          name: meta.name,
+          size: meta.size,
+          url: `/f/${encodeURIComponent(guildId)}/${encodeURIComponent(
+            channelId
+          )}/${encodeURIComponent(messageId)}/${encodeURIComponent(
+            attachmentId
+          )}/download`,
+          iconUrl,
+        };
+
+        const html = renderDownloadPage(file, ids);
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.send(html);
+      } catch (err) {
+        console.error("GET /f error:", err);
+        res.status(500).send("Internal error");
+      }
     }
-  });
+  );
 
-  // เส้นทางดาวน์โหลดจริง — สตรีมตรงจาก Discord → ผู้ใช้ (ไม่โหลดเก็บใน RAM)
   app.get(
     "/f/:guildId/:channelId/:messageId/:attachmentId/download",
     async (req, res) => {
       const { channelId, messageId, attachmentId } = req.params;
       try {
-        const file = await fetchAttachmentMeta(channelId, messageId, attachmentId);
+        const meta = await fetchAttachmentMeta(
+          channelId,
+          messageId,
+          attachmentId
+        );
+        if (!meta) return res.status(404).send("File not found");
 
-        const url = new URL(file.url);
-        const options = {
-          hostname: url.hostname,
-          path: url.pathname + url.search,
-          protocol: url.protocol,
-          headers: {
-            "User-Agent": "DiscordFileProxy/1.0",
-          },
-        };
+        const fileRes = await fetch(meta.url);
+        if (!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`);
 
-        https
-          .get(options, (discordRes) => {
-            if (discordRes.statusCode !== 200) {
-              res
-                .status(500)
-                .send(
-                  "ไม่สามารถดาวน์โหลดไฟล์จาก Discord ได้ (cdn status " +
-                    discordRes.statusCode +
-                    ")"
-                );
-              return;
-            }
+        res.setHeader(
+          "Content-Type",
+          fileRes.headers.get("content-type") ||
+            meta.contentType ||
+            "application/octet-stream"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${encodeURIComponent(meta.name)}"`
+        );
 
-            res.setHeader(
-              "Content-Disposition",
-              `attachment; filename="${encodeURIComponent(file.name)}"`
-            );
-            res.setHeader(
-              "Content-Type",
-              file.contentType || "application/octet-stream"
-            );
-
-            // pipe ตรง ไม่โหลดทั้งไฟล์เก็บไว้ในหน่วยความจำ
-            discordRes.pipe(res);
-          })
-          .on("error", () => {
-            res.status(500).send("เกิดข้อผิดพลาดขณะดาวน์โหลดไฟล์");
-          });
+        if (fileRes.body && typeof fileRes.body.pipe === "function") {
+          fileRes.body.pipe(res);
+        } else {
+          const buf = Buffer.from(await fileRes.arrayBuffer());
+          res.end(buf);
+        }
       } catch (err) {
-        res
-          .status(404)
-          .send("ไม่พบไฟล์ หรือไม่สามารถอ่านข้อมูลจาก Discord ได้");
+        console.error("DOWNLOAD error:", err);
+        if (!res.headersSent) res.status(500).send("Internal download error");
       }
     }
   );
 
-  app.listen(PORT, () => {
-    console.log(`🌐 Web server running on port ${PORT}`);
+  app.get("/fb/:guildId/:channelId/:messageId", async (req, res) => {
+    const { guildId, channelId, messageId } = req.params;
+    try {
+      const atts = await fetchAllAttachments(channelId, messageId);
+      if (!atts.length) return res.status(404).send("File not found");
+
+      let iconUrl = null;
+      const candidates = atts.filter((a) =>
+        a.name.toLowerCase().endsWith(".mcaddon")
+      );
+      if (candidates.length) {
+        const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+        for (const att of shuffled) {
+          iconUrl = await extractPackIconFromUrl(att.url);
+          if (iconUrl) break;
+        }
+      }
+
+      const totalSize = atts.reduce((s, a) => s + (a.size || 0), 0);
+      const count = atts.length;
+
+      const ids = { guildId, channelId, messageId, bundle: true };
+      const file = {
+        name: `รวมไฟล์ ${count} ไฟล์`,
+        size: totalSize,
+        url: `/fb/${encodeURIComponent(guildId)}/${encodeURIComponent(
+          channelId
+        )}/${encodeURIComponent(messageId)}/download`,
+        iconUrl,
+      };
+
+      const html = renderDownloadPage(file, ids);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      console.error("GET /fb error:", err);
+      res.status(500).send("Internal error");
+    }
+  });
+
+  app.get("/fb/:guildId/:channelId/:messageId/download", async (req, res) => {
+    const { channelId, messageId } = req.params;
+    try {
+      const atts = await fetchAllAttachments(channelId, messageId);
+      if (!atts.length) return res.status(404).send("File not found");
+
+      const payload = {
+        files: atts.map((a) => ({
+          name: a.name,
+          url: a.url,
+        })),
+      };
+
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.send(JSON.stringify(payload));
+    } catch (err) {
+      console.error("BUNDLE download json error:", err);
+      if (!res.headersSent) res.status(500).send("Internal download error");
+    }
   });
 
   return app;

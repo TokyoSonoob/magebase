@@ -1,10 +1,12 @@
-﻿// index.js — โหมดเต็ม: Bot + Web
-require("dotenv").config();
-
+﻿require("dotenv").config();
 const { startBot, setBaseUrl } = require("./bot");
 const createServer = require("./server");
 
-createServer(setBaseUrl);
-startBot();
+const PORT = Number(process.env.PORT || 3000);
+const app = createServer(setBaseUrl);
 
-console.log("🚀 Bot + Web started");
+app.listen(PORT, () => {
+  console.log("Server listening on", PORT);
+});
+
+startBot();
